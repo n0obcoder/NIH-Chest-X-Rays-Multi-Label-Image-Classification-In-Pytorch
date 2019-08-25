@@ -21,16 +21,18 @@ Images can be classified as "No findings" or one or more disease classes:
 
 There are 112,120 X-ray images of size 1024x1024 pixels, in which 86,524 images are for training and 25,596 are for testing.
 
+![esdc](sample_xrays/No Finding.png /) ![esdc](sample_xrays/No Finding.png /)
+
 # Sample X-Ray Images
 <div class="row">
   <div class="column">
-    <img src='sample_xrays/Atelectasis.png' width='250' alt='Atelectasis' hspace='15'>
+    <img src='/sample_xrays/Atelectasis.png' width='250' alt='Atelectasis' hspace='15'>
   </div>
   <div class="column">
-    <img src='sample_xrays/Cardiomegaly_Edema_Effusion.png' width='250' alt='Cardiomegaly | Edema | Effusion' hspace='15'>
+    <img src='/sample_xrays/Cardiomegaly_Edema_Effusion.png' width='250' alt='Cardiomegaly | Edema | Effusion' hspace='15'>
   </div>
   <div class="column">
-    <img src='sample_xrays/No Finding.png' width='250' alt='No Finding' hspace='15'>
+    <img src='/sample_xrays/No Finding.png' width='250' alt='No Finding' hspace='15'>
   </div>
 </div>
 
