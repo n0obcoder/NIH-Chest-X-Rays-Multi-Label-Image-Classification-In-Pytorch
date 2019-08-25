@@ -23,11 +23,9 @@ There are 112,120 X-ray images of size 1024x1024 pixels, in which 86,524 images 
 
 # Sample Images
 
-<p float="left">
-  <img src="//sample_xrays/Atelectasis.png" width="100" />
-  <img src="/Cardiomegaly_Edema_Effusion.png" width="100" /> 
-  <img src="/sample_xrays/No Finding.png" width="100" />
-</p>
+<img src="//sample_xrays/Atelectasis.png" width="100" />
+<img src="/Cardiomegaly_Edema_Effusion.png" width="100" /> 
+<img src="/sample_xrays/No Finding.png" width="100" />
 
 <div class="row">
   <div class="column">
