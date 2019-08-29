@@ -85,7 +85,7 @@ python main.py --test --ckpt checkpoint_file.pth
 ```
 
 # Result 
-The model achieved the **ROC AUC Score** of **0.88420** after training in the following stages-
+The model achieved the **ROC AUC Score** of **0.84297** after training in the following stages-
 
 #### STAGE 1 
 * Loss Function: FocalLoss
