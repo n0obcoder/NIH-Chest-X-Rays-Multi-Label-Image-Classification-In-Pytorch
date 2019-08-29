@@ -55,7 +55,7 @@ There is a choice of loss function
     python main.py
     ```
 
-* ### Resume From a Saved Checkpoint
+* ### Resuming From a Saved Checkpoint
     A Saved Checkpoint needs to be loaded which is nothing but a dictionary containing the 
     * epochs (number of epochs the model has been trained till that time)
     * model (architecture and the learnt weights of the model)
