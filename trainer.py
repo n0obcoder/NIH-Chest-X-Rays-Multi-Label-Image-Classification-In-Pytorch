@@ -1,20 +1,48 @@
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 import sys, os, time, random, pdb
 import numpy as np
 import pandas as pd
 import torch.nn.functional as F
 import torch
 import pickle
-import tqdm
+import tqdm, pdb
 from sklearn.metrics import roc_auc_score
 
 import config
 
-def get_roc_auc_score(y_true, y_probs, average = 'micro'):
+def get_roc_auc_score(y_true, y_probs):
     '''
     Uses roc_auc_score function from sklearn.metrics to calculate the micro ROC AUC score for a given y_true and y_probs.
     '''
-    return roc_auc_score(y_true, y_probs, average = average)
+
+    with open(os.path.join(config.pkl_dir_path, config.disease_classes_pkl_path), 'rb') as handle:
+        all_classes = pickle.load(handle)
+    
+    NoFindingIndex = all_classes.index('No Finding')
+
+    if True:
+        print('\nNoFindingIndex: ', NoFindingIndex)
+        print('y_true.shape, y_probs.shape ', y_true.shape, y_probs.shape)
+        GT_and_probs = {'y_true': y_true, 'y_probs': y_probs}
+        with open('GT_and_probs', 'wb') as handle:
+            pickle.dump(GT_and_probs, handle, protocol = pickle.HIGHEST_PROTOCOL)
+
+    class_roc_auc_list = []    
+    useful_classes_roc_auc_list = []
+    
+    for i in range(y_true.shape[1]):
+        class_roc_auc = roc_auc_score(y_true[:, i], y_probs[:, i])
+        class_roc_auc_list.append(class_roc_auc)
+        if i != NoFindingIndex:
+            useful_classes_roc_auc_list.append(class_roc_auc)
+    if True:
+        print('\nclass_roc_auc_list: ', class_roc_auc_list)
+        print('\nuseful_classes_roc_auc_list', useful_classes_roc_auc_list)
+
+    return np.mean(np.array(useful_classes_roc_auc_list))
 
 def make_plot(epoch_train_loss, epoch_val_loss, total_train_loss_list, total_val_loss_list, save_name):
     '''
@@ -78,25 +106,25 @@ def get_resampled_train_val_dataloaders(XRayTrain_dataset, transform, bs):
 
     return train_loader, val_loader
     
-def train_epoch(train_loader, model, loss_fn, optimizer, step_lr_scheduler, epochs_till_now, final_epoch, log_interval):
+def train_epoch(device, train_loader, model, loss_fn, optimizer, epochs_till_now, final_epoch, log_interval):
     '''
     Takes in the data from the 'train_loader', calculates the loss over it using the 'loss_fn' 
     and optimizes the 'model' using the 'optimizer'  
     
     Also prints the loss and the ROC AUC score for the batches, after every 'log_interval' batches. 
     '''
-    step_lr_scheduler.step() # the lr of the optimizer is multiplied with 'gamma' on the 'step_size'th time step() is called on step_lr_scheduler
-    # if initial lr of the optimized is 0.001 and step_lr_scheduler has step_size = 2 and gamma = 0.8, on the 2nd call of step_lr_scheduler.step(), optimizer's lr becomes 0.001*gamma 
     model.train()
     
     running_train_loss = 0
     train_loss_list = []
 
+    start_time = time.time()
     for batch_idx, (img, target) in enumerate(train_loader):
         # print(type(img), img.shape) # , np.unique(img))
-        
-        start_time = time.time()
 
+        img = img.to(device)
+        target = target.to(device)
+        
         optimizer.zero_grad()    
         out = model(img)        
         loss = loss_fn(out, target)
@@ -108,19 +136,21 @@ def train_epoch(train_loader, model, loss_fn, optimizer, step_lr_scheduler, epoc
         
         if (batch_idx+1)%log_interval == 0:
             # batch metric evaluation
-            out_detached = out.detach()
-            batch_roc_auc_score = get_roc_auc_score(target, out_detached.numpy())
+# #             out_detached = out.detach()
+# #             batch_roc_auc_score = get_roc_auc_score(target, out_detached.numpy())
             # 'out' is a torch.Tensor and 'roc_auc_score' function first tries to convert it into a numpy array, but since 'out' has requires_grad = True, it throws an error
             # RuntimeError: Can't call numpy() on Variable that requires grad. Use var.detach().numpy() instead. 
             # so we have to 'detach' the 'out' tensor and then convert it into a numpy array to avoid the error !  
 
             batch_time = time.time() - start_time
             m, s = divmod(batch_time, 60)
-            print('Train Loss for batch {}/{} @epoch{}/{}: {} and batch_roc_auc_score: {} in {} mins {} secs'.format(str(batch_idx+1).zfill(3), str(len(train_loader)).zfill(3), epochs_till_now, final_epoch, round(loss.item(), 5), round(batch_roc_auc_score, 5), int(m), int(s)))
+            print('Train Loss for batch {}/{} @epoch{}/{}: {} in {} mins {} secs'.format(str(batch_idx+1).zfill(3), str(len(train_loader)).zfill(3), epochs_till_now, final_epoch, round(loss.item(), 5), int(m), round(s, 2)))
+        
+        start_time = time.time()
             
     return train_loss_list, running_train_loss/float(len(train_loader.dataset))
 
-def val_epoch(val_loader, model, loss_fn, epochs_till_now = None, final_epoch = None, log_interval = 1, test_only = False):
+def val_epoch(device, val_loader, model, loss_fn, epochs_till_now = None, final_epoch = None, log_interval = 1, test_only = False):
     '''
     It essentially takes in the val_loader/test_loader, the model and the loss function and evaluates
     the loss and the ROC AUC score for all the data in the dataloader.
@@ -138,39 +168,47 @@ def val_epoch(val_loader, model, loss_fn, epochs_till_now = None, final_epoch = 
     k=0
 
     with torch.no_grad():
+        batch_start_time = time.time()    
         for batch_idx, (img, target) in enumerate(val_loader):
+            if test_only:
+                per = ((batch_idx+1)/len(val_loader))*100
+                a_, b_ = divmod(per, 1)
+                print(f'{str(batch_idx+1).zfill(len(str(len(val_loader))))}/{str(len(val_loader)).zfill(len(str(len(val_loader))))} ({str(int(a_)).zfill(2)}.{str(int(100*b_)).zfill(2)} %)', end = '\r')
     #         print(type(img), img.shape) # , np.unique(img))
 
-            batch_start_time = time.time()    
-
+            img = img.to(device)
+            target = target.to(device)    
+    
             out = model(img)        
             loss = loss_fn(out, target)    
             running_val_loss += loss.item()*img.shape[0]
             val_loss_list.append(loss.item())
 
             # storing model predictions for metric evaluat`ion 
-            probs[k: k + out.shape[0], :] = out
-            gt[   k: k + out.shape[0], :] = target
+            probs[k: k + out.shape[0], :] = out.cpu()
+            gt[   k: k + out.shape[0], :] = target.cpu()
             k += out.shape[0]
 
             if ((batch_idx+1)%log_interval == 0) and (not test_only): # only when ((batch_idx + 1) is divisible by log_interval) and (when test_only = False)
                 # batch metric evaluation
-                batch_roc_auc_score = get_roc_auc_score(target, out)
+#                 batch_roc_auc_score = get_roc_auc_score(target, out)
 
                 batch_time = time.time() - batch_start_time
                 m, s = divmod(batch_time, 60)
-                print('Val Loss   for batch {}/{} @epoch{}/{}: {} and batch_roc_auc_score: {} in {} mins {} secs'.format(str(batch_idx+1).zfill(3), str(len(val_loader)).zfill(3), epochs_till_now, final_epoch, round(loss.item(), 5), round(batch_roc_auc_score, 5), int(m), int(s)))
-
+                print('Val Loss   for batch {}/{} @epoch{}/{}: {} in {} mins {} secs'.format(str(batch_idx+1).zfill(3), str(len(val_loader)).zfill(3), epochs_till_now, final_epoch, round(loss.item(), 5), int(m), round(s, 2)))
+            
+            batch_start_time = time.time()    
+            
     # metric scenes
     roc_auc = get_roc_auc_score(gt, probs)
 
     return val_loss_list, running_val_loss/float(len(val_loader.dataset)), roc_auc
 
-def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
-                                         loss_fn, optimizer, lr_scheduler, losses_dict,
+def fit(device, XRayTrain_dataset, train_loader, val_loader, test_loader, model,
+                                         loss_fn, optimizer, losses_dict,
                                          epochs_till_now, epochs, 
                                          log_interval, save_interval, 
-                                         lr, bs, stage_num, test_only = False):
+                                         lr, bs, stage, test_only = False):
     '''
     Trains or Tests the 'model' on the given 'train_loader', 'val_loader', 'test_loader' for 'epochs' number of epochs.
     If training ('test_only' = False), it saves the optimized 'model' and  the loss plots ,after every 'save_interval'th epoch.
@@ -182,7 +220,7 @@ def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
     if test_only:
         print('\n======= Testing... =======\n')
         test_start_time = time.time()
-        test_loss, mean_running_test_loss, test_roc_auc = val_epoch(test_loader, model, loss_fn, log_interval, test_only = test_only)
+        test_loss, mean_running_test_loss, test_roc_auc = val_epoch(device, test_loader, model, loss_fn, log_interval, test_only = test_only)
         total_test_time = time.time() - test_start_time
         m, s = divmod(total_test_time, 60)
         print('test_roc_auc: {} in {} mins {} secs'.format(test_roc_auc, int(m), int(s)))
@@ -208,9 +246,9 @@ def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
         epoch_start_time = time.time()
         
         print('TRAINING')
-        train_loss, mean_running_train_loss          =  train_epoch(train_loader, model, loss_fn, optimizer, lr_scheduler, epochs_till_now, final_epoch, log_interval)
+        train_loss, mean_running_train_loss          =  train_epoch(device, train_loader, model, loss_fn, optimizer, epochs_till_now, final_epoch, log_interval)
         print('VALIDATION')
-        val_loss, mean_running_val_loss, roc_auc     =  val_epoch(val_loader, model, loss_fn                             , epochs_till_now, final_epoch, log_interval)
+        val_loss, mean_running_val_loss, roc_auc     =  val_epoch(device, val_loader, model, loss_fn                             , epochs_till_now, final_epoch, log_interval)
         
         epoch_train_loss.append(mean_running_train_loss)
         epoch_val_loss.append(mean_running_val_loss)
@@ -218,7 +256,7 @@ def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
         total_train_loss_list.extend(train_loss)
         total_val_loss_list.extend(val_loss)
 
-        save_name = 'stage{}_{}_{}'.format(stage_num, str.split(str(lr), '.')[-1], epochs_till_now)
+        save_name = 'stage{}_{}_{}'.format(stage, str.split(str(lr), '.')[-1], str(epochs_till_now).zfill(2))
 
         # the follwoing piece of codw needs to be worked on !!! LATEST DEVELOPMENT TILL HERE
         if ((epoch+1)%save_interval == 0) or test_only:
@@ -227,7 +265,6 @@ def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
             torch.save({
             'epochs': epochs_till_now,
             'model': model, # it saves the whole model
-            'lr_scheduler_state_dict': lr_scheduler.state_dict(), # dict_keys(['step_size', 'gamma', 'base_lrs', 'last_epoch'])
             'losses_dict': {'epoch_train_loss': epoch_train_loss, 'epoch_val_loss': epoch_val_loss, 'total_train_loss_list': total_train_loss_list, 'total_val_loss_list': total_val_loss_list}
             }, save_path)
             
@@ -247,9 +284,6 @@ def fit(XRayTrain_dataset, train_loader, val_loader, test_loader, model,
 
 
 
-
-
-
 '''   
 def pred_n_write(test_loader, model, save_name):
     res = np.zeros((3000, 15), dtype = np.float32)
@@ -266,7 +300,6 @@ def pred_n_write(test_loader, model, save_name):
     print('populating the csv')
     submit = pd.DataFrame()
     submit['ImageID'] = [str.split(i, os.sep)[-1] for i in test_loader.dataset.data_list]
-
     with open('disease_classes.pickle', 'rb') as handle:
         disease_classes = pickle.load(handle)
     
@@ -279,7 +312,6 @@ def pred_n_write(test_loader, model, save_name):
             submit['No_findings'] = res[:, idx]
         else:
             submit[col] = res[:, idx]
-
     rand_num = str(random.randint(1000, 9999))
     csv_name = '{}___{}.csv'.format(save_name, rand_num)
     submit.to_csv('res/' + csv_name, index = False)
