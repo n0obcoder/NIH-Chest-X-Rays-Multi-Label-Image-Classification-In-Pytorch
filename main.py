@@ -4,8 +4,6 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import cv2
-# %matplotlib inline
-import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -17,7 +15,6 @@ from datasets import XRaysTestDataset
 
 # import neccesary libraries for defining the optimizers
 import torch.optim as optim
-from torch.optim import lr_scheduler
 
 from trainer import fit
 import config
@@ -26,11 +23,15 @@ def q(text = ''): # easy way to exiting the script. useful while debugging
     print('> ', text)
     sys.exit()
 
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+print(f'\ndevice: {device}')
+    
 parser = argparse.ArgumentParser(description='Following are the arguments that can be passed form the terminal itself ! Cool huh ? :D')
 parser.add_argument('--data_path', type = str, default = 'NIH Chest X-rays', help = 'This is the path of the training data')
 # parser.add_argument('--test_path', type = str, default = os.path.join('hack-data-new','Scoring2/') , help = 'This is the path of the testing data')
-parser.add_argument('--bs', type = int, default = 256, help = 'batch size')
+parser.add_argument('--bs', type = int, default = 128, help = 'batch size')
 parser.add_argument('--lr', type = float, default = 1e-5, help = 'Learning Rate for the optimizer')
+parser.add_argument('--stage', type = int, default = 1, help = 'Stage, it decides which layers of the Neural Net to train')
 parser.add_argument('--loss_func', type = str, default = 'FocalLoss', choices = {'BCE', 'FocalLoss'}, help = 'loss function')
 parser.add_argument('-r','--resume', action = 'store_true') # args.resume will return True if -r or --resume is used in the terminal
 parser.add_argument('--ckpt', type = str, help = 'Path of the ckeckpoint that you wnat to load')
@@ -40,6 +41,11 @@ args = parser.parse_args()
 if args.resume and args.test: # what if --test is not defiend at all ? test case hai ye ek
     q('The flow of this code has been designed either to train the model or to test it.\nPlease choose either --resume or --test')
 
+stage = args.stage
+if not args.resume:
+    print(f'\nOverwriting stage to 1, as the model training is being done from scratch')
+    stage = 1
+    
 if args.test:
     print('TESTING THE MODEL')
 else:
@@ -72,7 +78,7 @@ print('num images in XRayTest_dataset: {}'.format(len(XRayTest_dataset)))
 print('-------------------------------------')
 
 # make the dataloaders
-batch_size = args.bs # 256 by default
+batch_size = args.bs # 128 by default
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = batch_size, shuffle = True)
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = batch_size, shuffle = not True)
 test_loader = torch.utils.data.DataLoader(XRayTest_dataset, batch_size = batch_size, shuffle = not True)
@@ -97,9 +103,9 @@ if not os.path.exists(config.models_dir):
 # define the loss function
 if args.loss_func == 'FocalLoss': # by default
     from losses import FocalLoss
-    loss_fn = FocalLoss(gamma = 2.) 
+    loss_fn = FocalLoss(device = device, gamma = 2.).to(device)
 elif args.loss_func == 'BCE':
-    loss_fn = nn.BCEWithLogitsLoss() 
+    loss_fn = nn.BCEWithLogitsLoss().to(device)
 
 # define the learning rate
 lr = args.lr
@@ -114,7 +120,8 @@ if not args.test: # training
         # change the last linear layer
         num_ftrs = model.fc.in_features
         model.fc = nn.Linear(num_ftrs, len(XRayTrain_dataset.all_classes)) # 15 output classes 
-
+        model.to(device)
+        
         print('----- STAGE 1 -----') # only training 'layer2', 'layer3', 'layer4' and 'fc'
         for name, param in model.named_parameters(): # all requires_grad by default, are True initially
             # print('{}: {}'.format(name, param.requires_grad)) # this shows True for all the parameters  
@@ -131,7 +138,7 @@ if not args.test: # training
 
     else:
         if args.ckpt == None:
-            q('ERROR: Please select a checkpoint to resume from')
+            q('ERROR: Please select a valid checkpoint to resume from')
             
         print('\nckpt loaded: {}'.format(args.ckpt))
         ckpt = torch.load(os.path.join(config.models_dir, args.ckpt)) 
@@ -139,7 +146,8 @@ if not args.test: # training
         # since we are resuming the training of the model
         epochs_till_now = ckpt['epochs']
         model = ckpt['model']
-
+        model.to(device)
+        
         # loading previous loss lists to collect future losses
         losses_dict = ckpt['losses_dict']
 
@@ -147,26 +155,28 @@ if not args.test: # training
     print('\n> loss_fn: {}'.format(loss_fn))
     print('> epochs_till_now: {}'.format(epochs_till_now))
     print('> batch_size: {}'.format(batch_size))
+    print('> stage: {}'.format(stage))
     print('> lr: {}'.format(lr))
 
 else: # testing
     if args.ckpt == None:
         q('ERROR: Please select a checkpoint to load the testing model from')
         
-    print('\nckpt loaded: {}'.format(args.ckpt))
+    print('\ncheckpoint loaded: {}'.format(args.ckpt))
     ckpt = torch.load(os.path.join(config.models_dir, args.ckpt)) 
 
     # since we are resuming the training of the model
     epochs_till_now = ckpt['epochs']
     model = ckpt['model']
-
+    
     # loading previous loss lists to collect future losses
     losses_dict = ckpt['losses_dict']
 
 # make changes(freezing/unfreezing the model's layers) in the following, for training the model for different stages 
-if not args.test:
-    if args.resume:
-        '''
+if (not args.test) and (args.resume):
+
+    if stage == 1:
+
         print('\n----- STAGE 1 -----') # only training 'layer2', 'layer3', 'layer4' and 'fc'
         for name, param in model.named_parameters(): # all requires_grad by default, are True initially
             # print('{}: {}'.format(name, param.requires_grad)) # this shows True for all the parameters  
@@ -174,9 +184,9 @@ if not args.test:
                 param.requires_grad = True 
             else:
                 param.requires_grad = False
-        '''
 
-        '''
+    elif stage == 2:
+
         print('\n----- STAGE 2 -----') # only training 'layer3', 'layer4' and 'fc'
         for name, param in model.named_parameters(): 
             # print('{}: {}'.format(name, param.requires_grad)) # this shows True for all the parameters  
@@ -184,9 +194,9 @@ if not args.test:
                 param.requires_grad = True 
             else:
                 param.requires_grad = False
-        '''
 
-        '''
+    elif stage == 3:
+
         print('\n----- STAGE 3 -----') # only training  'layer4' and 'fc'
         for name, param in model.named_parameters(): 
             # print('{}: {}'.format(name, param.requires_grad)) # this shows True for all the parameters  
@@ -194,9 +204,9 @@ if not args.test:
                 param.requires_grad = True 
             else:
                 param.requires_grad = False
-        '''
 
-        # '''
+    elif stage == 4:
+
         print('\n----- STAGE 4 -----') # only training 'fc'
         for name, param in model.named_parameters(): 
             # print('{}: {}'.format(name, param.requires_grad)) # this shows True for all the parameters  
@@ -204,8 +214,9 @@ if not args.test:
                 param.requires_grad = True 
             else:
                 param.requires_grad = False
-        # '''
 
+
+if not args.test:
     # checking the layers which are going to be trained (irrespective of args.resume)
     trainable_layers = []
     for name, param in model.named_parameters():
@@ -219,20 +230,14 @@ if not args.test:
     print('\nwe have {} Million trainable parameters here in the {} model'.format(count_parameters(model), model.__class__.__name__))
 
 optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr = lr)
-step_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size = 2, gamma=0.8)
-
-if args.resume:
-    # the step_size and gamma defined will be overwritten by the ones saved in the state_dict of the previous step_lr_scheduler
-    step_lr_scheduler.load_state_dict(ckpt['lr_scheduler_state_dict']) # this will use the state_dict of the saved lr_scheduler
-    print('\nstep_lr_scheduler.state_dict(): ', step_lr_scheduler.state_dict())
 
 # make changes in the parameters of the following 'fit' function
-fit(XRayTrain_dataset, train_loader, val_loader,    
+fit(device, XRayTrain_dataset, train_loader, val_loader,    
                                         test_loader, model, loss_fn, 
-                                        optimizer, step_lr_scheduler, losses_dict,
+                                        optimizer, losses_dict,
                                         epochs_till_now = epochs_till_now, epochs = 3,
-                                        log_interval = 5, save_interval = 1,
-                                        lr = lr, bs = batch_size, stage_num = 4,
+                                        log_interval = 25, save_interval = 1,
+                                        lr = lr, bs = batch_size, stage = stage,
                                         test_only = args.test)
 
 script_time = time.time() - script_start_time
@@ -247,11 +252,11 @@ print('{} h {}m laga poore script me !'.format(int(h), int(m)))
 # epochs = 2
 # ##### STAGE 2 ##### FocalLoss lr = 3e-4
 # training layers = layer3, layer4, fc 
-# epochs = 1
-# ##### STAGE 3 ##### FocalLoss lr = 1e-3
+# epochs = 5
+# ##### STAGE 3 ##### FocalLoss lr = 7e-4
 # training layers = layer4, fc 
-# epochs = 3
+# epochs = 4
 # ##### STAGE 4 ##### FocalLoss lr = 1e-3
 # training layers = fc 
-# epochs = 2
+# epochs = 3
 # '''
