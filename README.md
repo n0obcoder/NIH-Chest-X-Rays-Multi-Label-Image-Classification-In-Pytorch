@@ -67,11 +67,11 @@ There is a choice of loss function
       * batch train loss for all the training batches
       * batch train loss for all the val batches
  
-Different layers of the model are freezed/unfreezed in different stages, defined inside the *main.py* to fit the model well on the data. 
+Different layers of the model are freezed/unfreezed in different stages, defined at the end of *this README.md file, to fit the model well on the data. The 'stage' parameter can be passed from the terminal using the argument --stage STAGE
  
 Terminal Code: 
 ```
-python main.py --resume --ckpt checkpoint_file.pth
+python main.py --resume --ckpt checkpoint_file.pth --stage 2
 ```
 
 Training the model will create a **models** directory and will save the checkpoints in there.
@@ -85,7 +85,7 @@ python main.py --test --ckpt checkpoint_file.pth
 ```
 
 # Result 
-The model achieved the **ROC AUC Score** of **0.84297** after training in the following stages-
+The model achieved the average **ROC AUC Score** of **0.73241** on all classes(excluding "No findings" class) after training in the following stages-
 
 #### STAGE 1 
 * Loss Function: FocalLoss
