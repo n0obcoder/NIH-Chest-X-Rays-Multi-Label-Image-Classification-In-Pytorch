@@ -22,7 +22,7 @@ class XRaysTrainDataset(Dataset):
 
         # full dataframe including train_val and test set
         self.df = self.get_df()
-        print('self.df.shape: {}'.format(self.df.shape) )
+        print('self.df.shape: {}'.format(self.df.shape))
 
         self.make_pkl_dir(config.pkl_dir_path)
 
@@ -54,12 +54,12 @@ class XRaysTrainDataset(Dataset):
         else:
             print('\n{}: already exists'.format(config.disease_classes_pkl_path))
 
-        self.new_df = self.df.iloc[self.the_chosen, :] # this is the sampled train_val data
+        self.new_df = self.train_val_df.iloc[self.the_chosen, :] # this is the sampled train_val data
         print('\nself.all_classes_dict: {}'.format(self.all_classes_dict))
             
     def resample(self):
         self.the_chosen, self.all_classes, self.all_classes_dict = self.choose_the_indices()
-        self.new_df = self.df.iloc[self.the_chosen, :]
+        self.new_df = self.train_val_df.iloc[self.the_chosen, :]
         print('\nself.all_classes_dict: {}'.format(self.all_classes_dict))
 
     def make_pkl_dir(self, pkl_dir_path):
@@ -79,7 +79,7 @@ class XRaysTrainDataset(Dataset):
             if filename in train_val_list:
                 train_val_df = train_val_df.append(self.df.iloc[i:i+1, :])
 
-        print('train_val_df.shape: {}'.format(train_val_df.shape))
+        # print('train_val_df.shape: {}'.format(train_val_df.shape))
 
         return train_val_df
 
@@ -119,6 +119,7 @@ class XRaysTrainDataset(Dataset):
                         all_classes[t] = 1
                     else:
                         all_classes[t] += 1
+                continue
 
             # choose if multiple labels
             if len(temp) > 1:
@@ -180,7 +181,7 @@ class XRaysTrainDataset(Dataset):
         f = open(os.path.join('data', 'NIH Chest X-rays', 'train_val_list.txt'), 'r')
         train_val_list = str.split(f.read(), '\n')
         return train_val_list
-    
+
     def __len__(self):
         return len(self.new_df)
 
@@ -194,6 +195,7 @@ class XRaysTestDataset(Dataset):
 
         # full dataframe including train_val and test set
         self.df = self.get_df()
+        print('\nself.df.shape: {}'.format(self.df.shape))
 
         self.make_pkl_dir(config.pkl_dir_path)
 
@@ -220,7 +222,7 @@ class XRaysTestDataset(Dataset):
 
     def __getitem__(self, index):
         row = self.test_df.iloc[index, :]
-
+        
         img = cv2.imread(row['image_links'])
         labels = str.split(row['Finding Labels'], '|')
         
@@ -240,7 +242,6 @@ class XRaysTestDataset(Dataset):
 
     def get_df(self):
         csv_path = os.path.join(self.data_dir, 'Data_Entry_2017.csv')
-        # print('{} found: {}'.format(csv_path, os.path.exists(csv_path)))
         
         all_xray_df = pd.read_csv(csv_path)
 
