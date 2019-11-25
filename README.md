@@ -1,6 +1,14 @@
 # NIH-Chest-X-rays-Multi-Label-Image-Classification-In-Pytorch
 Multi-Label Image Classification of the Chest X-Rays In Pytorch
 
+# Requirements
+* torch >= 0.4    
+* torchvision >= 0.2.2
+* opencv-python    
+* numpy >= 1.7.3       
+* matplotlib       
+* tqdm    
+
 # Dataset
 [NIH Chest X-ray Dataset](https://www.kaggle.com/nih-chest-xrays/data#Data_Entry_2017.csv) is used for  Multi-Label Disease Classification of of the Chest X-Rays.
 There are a total of 15 classes (14 diseases, and one for 'No findings')
